@@ -17,6 +17,7 @@ const (
 	FormatJSON    ExportFormat = "json"
 	FormatGeoJSON ExportFormat = "geojson"
 	FormatCSV     ExportFormat = "csv"
+	FormatParquet ExportFormat = "parquet"
 )
 
 type ItemLoader func(list id.ItemIDList) (item.List, error)

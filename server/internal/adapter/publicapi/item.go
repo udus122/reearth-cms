@@ -89,6 +89,8 @@ func (c *Controller) GetPublicItems(ctx context.Context, wsAlias, pAlias, mKey, 
 		format = exporters.FormatGeoJSON
 	case "csv":
 		format = exporters.FormatCSV
+	case "parquet":
+		format = exporters.FormatParquet
 	}
 
 	err = c.usecases.Item.Export(ctx, interfaces.ExportItemParams{

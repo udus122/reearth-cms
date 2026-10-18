@@ -57,12 +57,15 @@ func Echo(e *echo.Group, rl RateLimitConfig) {
 	// /:ws/:p/:m.json
 	// /:ws/:p/:m.csv
 	// /:ws/:p/:m.geojson
+	// /:ws/:p/:m.parquet
+	// /:ws/:p/catalog.jsonld
 	// /:ws/:p/:m.schema.json
 	// /:ws/:p/:m.metadata_schema.json
 	// /:ws/:p/:m.zip
 	// /:ws/:p/:m/:i
 
 	e.GET("/:workspace/:project/:sub-route", SubRoute())
+	e.HEAD("/:workspace/:project/:sub-route", SubRoute())
 	e.GET("/:workspace/:project/:model/:item", ItemOrAsset())
 	e.GET("/:workspace/:project", OpenAPISchema())
 	e.POST("/:workspace/:project/:model/items", PostItem(), RateLimitMiddleware(rl))
@@ -87,6 +90,9 @@ func parseSubRoute(subRoute string) (name, ext string) {
 func SubRoute() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		wsAlias, pAlias := c.Param("workspace"), c.Param("project")
+		if c.Param("sub-route") == catalogRoute {
+			return CatalogHandler(c, wsAlias, pAlias)
+		}
 		mKey, ext := parseSubRoute(c.Param("sub-route"))
 
 		switch ext {
@@ -103,6 +109,8 @@ func SubRoute() echo.HandlerFunc {
 			return Items(c, wsAlias, pAlias, mKey, "csv")
 		case ".geojson":
 			return Items(c, wsAlias, pAlias, mKey, "geojson")
+		case ".parquet":
+			return ParquetItems(c, wsAlias, pAlias, mKey)
 		case "":
 			if mKey == "assets" {
 				return Assets(c, wsAlias, pAlias, "assets", "")
@@ -352,4 +360,45 @@ func OpenAPISchema() echo.HandlerFunc {
 
 		return c.JSON(http.StatusOK, res)
 	}
+}
+
+// ParquetItems serves every public item of a model as one Parquet file.
+// Readers such as DuckDB fetch only the footer and the columns they need with
+// Range requests, so the file is served with http.ServeContent instead of a plain blob.
+func ParquetItems(c *echo.Context, wsAlias, pAlias, mKey string) error {
+	ctx := c.Request().Context()
+	ctrl := GetController(ctx)
+
+	w := bytes.NewBuffer(nil)
+	err := ctrl.GetPublicItems(ctx, wsAlias, pAlias, mKey, "parquet", nil, w)
+	if err != nil {
+		if errors.Is(err, rerror.ErrNotFound) {
+			return c.JSON(http.StatusNotFound, map[string]string{"error": "not found"})
+		}
+		return err
+	}
+
+	c.Response().Header().Set(echo.HeaderContentType, "application/vnd.apache.parquet")
+	http.ServeContent(c.Response(), c.Request(), mKey+".parquet", time.Time{}, bytes.NewReader(w.Bytes()))
+	return nil
+}
+
+// catalogRoute never clashes with a model: ".jsonld" is not a model extension.
+const catalogRoute = "catalog.jsonld"
+
+func CatalogHandler(c *echo.Context, wsAlias, pAlias string) error {
+	ctx := c.Request().Context()
+	ctrl := GetController(ctx)
+
+	baseURL := c.Scheme() + "://" + c.Request().Host + "/api/p/" + wsAlias + "/" + pAlias
+	res, err := ctrl.GetCatalog(ctx, wsAlias, pAlias, baseURL)
+	if err != nil {
+		if errors.Is(err, rerror.ErrNotFound) {
+			return c.JSON(http.StatusNotFound, map[string]string{"error": "not found"})
+		}
+		return err
+	}
+
+	c.Response().Header().Set(echo.HeaderContentType, "application/ld+json")
+	return c.JSON(http.StatusOK, res)
 }

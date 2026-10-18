@@ -44,6 +44,8 @@ func (i Item) Export(ctx context.Context, params interfaces.ExportItemParams, w 
 		exporter = exporters.NewCSVExporter(w)
 	case exporters.FormatGeoJSON:
 		exporter = exporters.NewGeoJSONExporter(w)
+	case exporters.FormatParquet:
+		exporter = exporters.NewParquetExporter(w)
 	default:
 		return rerror.NewE(i18n.T("unsupported export format"))
 	}
